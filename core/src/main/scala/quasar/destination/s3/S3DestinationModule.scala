@@ -25,7 +25,7 @@ import quasar.api.destination.DestinationError.InitializationError
 import quasar.api.destination.DestinationType
 import quasar.blobstore.BlobstoreStatus
 import quasar.blobstore.s3.{AccessKey, Bucket, Region, SecretKey, S3StatusService}
-import quasar.connector.MonadResourceErr
+import quasar.connector.{GetAuth, MonadResourceErr}
 import quasar.connector.destination.{Destination, DestinationModule, PushmiPullyu}
 import quasar.destination.s3.impl.DefaultUpload
 
@@ -70,7 +70,8 @@ object S3DestinationModule extends DestinationModule {
 
   def destination[F[_]: ConcurrentEffect: ContextShift: MonadResourceErr: Timer](
       config: Json,
-      pushPull: PushmiPullyu[F]): Resource[F, Either[InitializationError[Json], Destination[F]]] = {
+      pushPull: PushmiPullyu[F],
+      auth: GetAuth[F]): Resource[F, Either[InitializationError[Json], Destination[F]]] = {
 
     val configOrError = config.as[S3Config].toEither.leftMap {
       case (err, _) =>

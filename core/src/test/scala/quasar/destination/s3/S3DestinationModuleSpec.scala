@@ -74,7 +74,7 @@ object S3DestinationModuleSpec extends EffectfulQSpec[IO] {
   "creates a destination with valid credentials" >>* {
     val destination =
       Resource.suspend(configWith(TestBucket).map(
-        S3DestinationModule.destination[IO](_, _ => _ => Stream.empty)))
+        S3DestinationModule.destination[IO](_, _ => _ => Stream.empty, _ => IO.pure(None))))
 
     destination.use(dst => IO(dst must beRight))
   }
@@ -82,7 +82,7 @@ object S3DestinationModuleSpec extends EffectfulQSpec[IO] {
   "validates bucket exists" >>* {
     val destination =
       Resource.suspend(configWith(NonExistantBucket).map(
-        S3DestinationModule.destination[IO](_, _ => _ => Stream.empty)))
+        S3DestinationModule.destination[IO](_, _ => _ => Stream.empty, _ => IO.pure(None))))
 
     destination.use(dst => IO(dst must beLeft.like {
       case DestinationError.InvalidConfiguration(dt, _, rs) =>
@@ -100,7 +100,7 @@ object S3DestinationModuleSpec extends EffectfulQSpec[IO] {
 
     val destination =
       Resource.suspend(config.map(
-        S3DestinationModule.destination[IO](_, _ => _ => Stream.empty)))
+        S3DestinationModule.destination[IO](_, _ => _ => Stream.empty, _ => IO.pure(None))))
 
     destination.use(dst => IO(dst must beLeft.like {
       case DestinationError.AccessDenied(dt, _, msg) =>
