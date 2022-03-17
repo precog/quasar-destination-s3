@@ -40,6 +40,8 @@ final class S3Destination[F[_]: Concurrent: ContextShift: MonadResourceErr](
   bucket: Bucket, uploadImpl: Upload[F])
     extends UntypedDestination[F] {
 
+  import S3Destination._
+
   def destinationType: DestinationType = DestinationType("s3", 1L)
 
   def sinks: NonEmptyList[ResultSink[F, Unit]] =
@@ -60,9 +62,12 @@ final class S3Destination[F[_]: Concurrent: ContextShift: MonadResourceErr](
   private def nestResourcePath(file: AFile): AFile = {
     val withoutExtension = Path.fileName(Path.renameFile(file, _.dropExtension)).value
     val withExtension = Path.fileName(file)
+    val withMandatoryExtension = withExtension.changeExtension { ext =>
+      if (ext === MandatoryExtension || ext === "") MandatoryExtension
+      else s"$ext.$MandatoryExtension"
+    }
     val parent = Path.fileParent(file)
-
-    parent </> Path.dir(withoutExtension) </> Path.file1(withExtension)
+    parent </> Path.dir(withoutExtension) </> Path.file1(withMandatoryExtension)
   }
 
   private def resourcePathToBlobPath(rp: ResourcePath): BlobPath =
@@ -76,6 +81,8 @@ final class S3Destination[F[_]: Concurrent: ContextShift: MonadResourceErr](
 }
 
 object S3Destination {
+  private val MandatoryExtension = "csv"
+
   def apply[F[_]: Concurrent: ContextShift: MonadResourceErr](bucket: Bucket, upload: Upload[F])
       : S3Destination[F] =
     new S3Destination[F](bucket, upload)
