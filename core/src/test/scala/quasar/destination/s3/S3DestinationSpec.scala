@@ -53,6 +53,30 @@ object S3DestinationSpec extends EffectfulQSpec[IO] {
     }
   }
 
+  "adds csv extension to existing one" >>* {
+    for {
+      (upload, ref) <- MockUpload.empty
+      testPath = ResourcePath.root() / ResourceName("foo") / ResourceName("bar.whatever")
+      bytes = Stream("foobar").through(text.utf8Encode)
+      _ <- run(upload, testPath, bytes)
+      keys <- ref.get.map(_.keys)
+    } yield {
+      keys must contain(exactly(ObjectKey("foo/bar/bar.whatever.csv")))
+    }
+  }
+
+  "adds csv extenstion if there is no extenstion" >>* {
+    for {
+      (upload, ref) <- MockUpload.empty
+      testPath = ResourcePath.root() / ResourceName("foo") / ResourceName("bar")
+      bytes = Stream("foobar").through(text.utf8Encode)
+      _ <- run(upload, testPath, bytes)
+      keys <- ref.get.map(_.keys)
+    } yield {
+      keys must contain(exactly(ObjectKey("foo/bar/bar.csv")))
+    }
+  }
+
   "rejects ResourcePath.root() with ResourceError.NotAResource" >>* {
     for {
       (upload, _) <- MockUpload.empty
