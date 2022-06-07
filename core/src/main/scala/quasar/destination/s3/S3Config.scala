@@ -24,7 +24,8 @@ import argonaut.{Argonaut, DecodeJson, EncodeJson, Json}, Argonaut._
 
 final case class S3Credentials(accessKey: AccessKey, secretKey: SecretKey, region: Region)
 final case class BucketUri(value: String)
-final case class S3Config(bucketUri: BucketUri, credentials: S3Credentials)
+final case class PrefixPath(value: String)
+final case class S3Config(bucketUri: BucketUri, prefixPath: Option[PrefixPath], credentials: S3Credentials)
 
 object S3Config {
   implicit val s3CredentialsDecodeJson: DecodeJson[S3Credentials] =
@@ -37,8 +38,9 @@ object S3Config {
   implicit val s3ConfigDecodeJson: DecodeJson[S3Config] =
     DecodeJson(c => for {
       uri <- c.downField("bucket").as[String]
+      prefixPath <- c.downField("prefixPath").as[Option[String]]
       creds <- c.downField("credentials").as[S3Credentials]
-    } yield S3Config(BucketUri(uri), creds))
+    } yield S3Config(BucketUri(uri), prefixPath.map(PrefixPath(_)), creds))
 
   private implicit val s3CredentialsEncodeJson: EncodeJson[S3Credentials] =
     EncodeJson(creds => Json.obj(
@@ -47,8 +49,10 @@ object S3Config {
       "region" := creds.region.value))
 
   implicit val s3ConfigEncodeJson: EncodeJson[S3Config] =
-    EncodeJson(config => Json.obj(
-      "bucket" := config.bucketUri.value,
-      "credentials" := config.credentials.asJson))
+    EncodeJson(config =>
+      ("prefixPath" :?= config.prefixPath.map(_.value)) ->?:
+        ("bucket" := config.bucketUri.value) ->:
+        ("credentials" := config.credentials.asJson) ->:
+        jEmptyObject)
 
 }
