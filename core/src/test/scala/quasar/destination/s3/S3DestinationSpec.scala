@@ -105,7 +105,7 @@ object S3DestinationSpec extends EffectfulQSpec[IO] {
   }
 
   private def run(upload: Upload[IO], path: ResourcePath, bytes: Stream[IO, Byte]): IO[Unit] =
-    findCsvSink(S3Destination[IO](TestBucket, upload).sinks).fold(
+    findCsvSink(S3Destination[IO](TestBucket, None, upload).sinks).fold(
       IO.raiseError[Unit](new Exception("Could not find CSV sink in S3Destination"))
     )(_.consume(path, NonEmptyList.one(Column("test", ())))._2(bytes).compile.drain)
 

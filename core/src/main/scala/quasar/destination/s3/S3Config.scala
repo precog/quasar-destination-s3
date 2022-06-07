@@ -18,13 +18,18 @@ package quasar.destination.s3
 
 import slamdata.Predef._
 
+import quasar.api.resource.{ResourceName, ResourcePath}
 import quasar.blobstore.s3.{AccessKey, SecretKey, Region}
 
 import argonaut.{Argonaut, DecodeJson, EncodeJson, Json}, Argonaut._
+import scalaz.IList
 
 final case class S3Credentials(accessKey: AccessKey, secretKey: SecretKey, region: Region)
 final case class BucketUri(value: String)
-final case class PrefixPath(value: String)
+final case class PrefixPath(value: String) {
+  lazy val toResourcePath: ResourcePath =
+    ResourcePath.resourceNamesIso(IList(value.split("/").filterNot(_.isEmpty).map(ResourceName(_)) :_*))
+}
 final case class S3Config(bucketUri: BucketUri, prefixPath: Option[PrefixPath], credentials: S3Credentials)
 
 object S3Config {

@@ -37,7 +37,7 @@ import fs2.{Pipe, Stream}
 import pathy.Path
 
 final class S3Destination[F[_]: Concurrent: ContextShift: MonadResourceErr](
-  bucket: Bucket, uploadImpl: Upload[F])
+  bucket: Bucket, prefixPath: Option[PrefixPath], uploadImpl: Upload[F])
     extends UntypedDestination[F] {
 
   import S3Destination._
@@ -50,7 +50,7 @@ final class S3Destination[F[_]: Concurrent: ContextShift: MonadResourceErr](
   private def csvSink = ResultSink.create[F, Unit, Byte] { (path, _) =>
     val pipe: Pipe[F, Byte, Unit] =
       bytes => Stream.eval(for {
-        afile <- ensureAbsFile(path)
+        afile <- ensureAbsFile(prefixPath, path)
         path = ResourcePath.fromPath(nestResourcePath(afile))
         key = resourcePathToBlobPath(path)
         _ <- uploadImpl.upload(bytes, bucket, key)
@@ -76,14 +76,16 @@ final class S3Destination[F[_]: Concurrent: ContextShift: MonadResourceErr](
         .get(rp)
         .map(rn => PathElem(rn.value)).toList)
 
-  private def ensureAbsFile(r: ResourcePath): F[AFile] =
-    r.fold(_.pure[F], MonadResourceErr[F].raiseError(ResourceError.notAResource(r)))
+  private def ensureAbsFile(prefixPath: Option[PrefixPath], r: ResourcePath): F[AFile] = {
+    val rp = prefixPath.map(_.toResourcePath).getOrElse(ResourcePath.Root) ++ r
+    rp.fold(_.pure[F], MonadResourceErr[F].raiseError(ResourceError.notAResource(r)))
+  }
 }
 
 object S3Destination {
   private val MandatoryExtension = "csv"
 
-  def apply[F[_]: Concurrent: ContextShift: MonadResourceErr](bucket: Bucket, upload: Upload[F])
+  def apply[F[_]: Concurrent: ContextShift: MonadResourceErr](bucket: Bucket, prefixPath: Option[PrefixPath], upload: Upload[F])
       : S3Destination[F] =
-    new S3Destination[F](bucket, upload)
+    new S3Destination[F](bucket, prefixPath, upload)
 }
