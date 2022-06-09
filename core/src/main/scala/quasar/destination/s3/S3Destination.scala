@@ -31,15 +31,17 @@ import quasar.contrib.pathy.AFile
 import cats.data.NonEmptyList
 import cats.effect.{Concurrent, ContextShift}
 
-import cats.implicits._
+import cats.syntax.all._
 
 import fs2.{Pipe, Stream}
 
+import org.slf4s.Logger
 import pathy.Path
+import scalaz.syntax.show._
 import skolems.∀
 
 final class S3Destination[F[_]: ContextShift: MonadResourceErr](
-  bucket: Bucket, prefixPath: Option[PrefixPath], uploadImpl: Upload[F], mkPostfix: F[String])(implicit F: Concurrent[F])
+  logger: Logger, bucket: Bucket, prefixPath: Option[PrefixPath], uploadImpl: Upload[F], mkPostfix: F[String])(implicit F: Concurrent[F])
     extends UntypedDestination[F] {
 
   import S3Destination._
@@ -50,15 +52,16 @@ final class S3Destination[F[_]: ContextShift: MonadResourceErr](
     NonEmptyList.of(csvCreateSink, csvAppendSink, csvUpsertSink)
 
   private def csvCreateSink = ResultSink.create[F, Unit, Byte] { (path, _) =>
-    (RenderConfig.Csv(), consume(path, addTimestamp = false))
+    (RenderConfig.Csv(), consume("CreateSink", path, addTimestamp = false))
   }
 
-  private def consume(path: ResourcePath, addTimestamp: Boolean): Pipe[F, Byte, Unit] = {
+  private def consume(logPrefix: String, path: ResourcePath, addTimestamp: Boolean): Pipe[F, Byte, Unit] = {
     bytes => Stream.eval(for {
       afile <- ensureAbsFile(prefixPath, path)
       postfix <- if (addTimestamp) mkPostfix.map(_.some) else F.pure(none[String])
       path = ResourcePath.fromPath(nestResourcePath(afile, postfix))
       key = resourcePathToBlobPath(path)
+      _ <- F.delay(logger.debug(s"[$logPrefix] Uploading ${path.show} to ${key.path.map(_.value).intercalate("/")}"))
       _ <- uploadImpl.upload(bytes, bucket, key)
     } yield ())
   }
@@ -67,7 +70,7 @@ final class S3Destination[F[_]: ContextShift: MonadResourceErr](
 
   private def append(appendArgs: ResultSink.AppendSink.Args[Unit])
       : (RenderConfig[Byte], ∀[Consume[F, AppendEvent[Byte, *], *]]) = {
-    val c = ∀[Consume[F, AppendEvent[Byte, *], *]](consumePipe(appendArgs.path))
+    val c = ∀[Consume[F, AppendEvent[Byte, *], *]](consumePipe("AppendSink", appendArgs.path))
     (RenderConfig.Csv(), c)
   }
 
@@ -75,13 +78,13 @@ final class S3Destination[F[_]: ContextShift: MonadResourceErr](
 
   private def upsert(upsertArgs: ResultSink.UpsertSink.Args[Unit])
       : (RenderConfig[Byte], ∀[Consume[F, DataEvent[Byte, *], *]]) = {
-    val c = ∀[Consume[F, DataEvent[Byte, *], *]](consumePipe(upsertArgs.path))
+    val c = ∀[Consume[F, DataEvent[Byte, *], *]](consumePipe("UpsertSink", upsertArgs.path))
     (RenderConfig.Csv(), c)
   }
 
-  private def consumePipe[A](path: ResourcePath)
+  private def consumePipe[A](logPrefix: String, path: ResourcePath)
       : Pipe[F, DataEvent[Byte, OffsetKey.Actual[A]], OffsetKey.Actual[A]] =
-    DataEventConsumer[F, A, Byte](consume(path, addTimestamp = true))
+    DataEventConsumer[F, A, Byte](consume(logPrefix, path, addTimestamp = true))
 
   private def nestResourcePath(file: AFile, postfix: Option[String]): AFile = {
     val withoutExtension = Path.fileName(Path.renameFile(file, _.dropExtension)).value
@@ -116,7 +119,7 @@ object S3Destination {
   private val MandatoryExtension = "csv"
 
   def apply[F[_]: Concurrent: ContextShift: MonadResourceErr](
-      bucket: Bucket, prefixPath: Option[PrefixPath], upload: Upload[F], mkPostfix: F[String])
+      logger: Logger, bucket: Bucket, prefixPath: Option[PrefixPath], upload: Upload[F], mkPostfix: F[String])
       : S3Destination[F] =
-    new S3Destination[F](bucket, prefixPath, upload, mkPostfix)
+    new S3Destination[F](logger, bucket, prefixPath, upload, mkPostfix)
 }

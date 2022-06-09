@@ -36,10 +36,14 @@ import cats.effect.concurrent.Ref
 import cats.effect.{IO, Timer}
 import cats.implicits._
 import fs2.{Chunk, Stream, text}
+import org.slf4s.LoggerFactory
 import skolems.∀
 
 object S3DestinationSpec extends EffectfulQSpec[IO] {
+
   implicit val timer: Timer[IO] = IO.timer(ExecutionContext.global)
+
+  val Log = LoggerFactory.getLogger("S3DestinationSpec")
 
   val TestBucket = Bucket("fake-bucket")
   val MkPostfix = IO.delay("somepostfix")
@@ -179,7 +183,7 @@ object S3DestinationSpec extends EffectfulQSpec[IO] {
   }
 
   private def runCreateSink(upload: Upload[IO], path: ResourcePath, bytes: Stream[IO, Byte]): IO[Unit] = {
-    findCreateSink(S3Destination[IO](TestBucket, None, upload, MkPostfix).sinks).fold(
+    findCreateSink(S3Destination[IO](Log, TestBucket, None, upload, MkPostfix).sinks).fold(
       IO.raiseError[Unit](new Exception("Could not find create sink in S3Destination"))
     )(_.consume(path, NonEmptyList.one(Column("test", ())))._2(bytes).compile.drain)
   }
@@ -192,7 +196,7 @@ object S3DestinationSpec extends EffectfulQSpec[IO] {
     }
 
   private def runAppendSink(upload: Upload[IO], path: ResourcePath, evs: Stream[IO, AppendEvent[Byte, OffsetKey.Actual[String]]]): IO[List[OffsetKey.Actual[String]]] = {
-    findAppendSink(S3Destination[IO](TestBucket, None, upload, MkPostfix).sinks).fold(
+    findAppendSink(S3Destination[IO](Log, TestBucket, None, upload, MkPostfix).sinks).fold(
       IO.raiseError[List[OffsetKey.Actual[String]]](new Exception("Could not find append sink in S3Destination"))
     )(sink => consumeAppend(sink, path, evs))
   }
