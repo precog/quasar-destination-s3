@@ -53,12 +53,11 @@ object DataEventConsumer {
     evs =>
       for {
         q <- Stream.eval(Queue.unbounded[F, Option[OffsetKey.Actual[A]]])
-        evsFin = evs.onFinalize(q.enqueue1(None))
 
         consumer = new DataEventConsumer[F, A, B](q, write)
 
         offset <- q.dequeue.unNoneTerminate.concurrently {
-          consumer.consume(evsFin)
+          consumer.consume(evs).onFinalize(q.enqueue1(None))
         }
       } yield offset
 
