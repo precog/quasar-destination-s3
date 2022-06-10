@@ -19,6 +19,7 @@ package quasar.destination.s3
 import slamdata.Predef._
 
 import java.net.URI
+import java.time.{ZoneId, ZoneOffset}
 import java.time.format.DateTimeFormatter
 
 import quasar.api.destination.DestinationError
@@ -87,7 +88,7 @@ object S3DestinationModule extends DestinationModule {
       (endpoint, bucket) <- EitherT(Resource.pure[F, Either[InitializationError[Json], (Option[URI], Bucket)]](unapplyBucketUri(config)(cfg.bucketUri)))
       client <- EitherT(mkClient(cfg, endpoint).map(_.asRight[InitializationError[Json]]))
       upload = DefaultUpload(client, PartSize)
-      mkPostfix = Timer[F].clock.instantNow.map(DateTimeFormatter.ISO_INSTANT.format(_))
+      mkPostfix = Timer[F].clock.instantNow.map(DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmssSSSX").withZone(ZoneId.from(ZoneOffset.UTC)).format(_))
 
       logger <- EitherT.right[InitializationError[Json]]{
         Resource.eval(ConcurrentEffect[F].delay(LoggerFactory(s"quasar.lib.destination.s3")))
