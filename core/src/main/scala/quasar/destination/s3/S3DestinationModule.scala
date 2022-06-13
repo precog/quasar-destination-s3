@@ -19,6 +19,8 @@ package quasar.destination.s3
 import slamdata.Predef._
 
 import java.net.URI
+import java.time.{ZoneId, ZoneOffset}
+import java.time.format.DateTimeFormatter
 
 import quasar.api.destination.DestinationError
 import quasar.api.destination.DestinationError.InitializationError
@@ -41,6 +43,7 @@ import cats.data.EitherT
 import cats.effect.{Concurrent, ConcurrentEffect, ContextShift, Resource, Timer}
 import cats.implicits._
 import scalaz.NonEmptyList
+import org.slf4s.LoggerFactory
 
 object S3DestinationModule extends DestinationModule {
   // Minimum 10MiB multipart uploads
@@ -82,11 +85,21 @@ object S3DestinationModule extends DestinationModule {
 
     (for {
       cfg <- EitherT(Resource.pure[F, Either[InitializationError[Json], S3Config]](configOrError))
-      (endpoint, bucket) <- EitherT(Resource.pure[F, Either[InitializationError[Json], (Option[URI], Bucket)]](unapplyBucketUri(config)(cfg.bucketUri)))
+      (endpoint, bucket) <- EitherT(
+        Resource.pure[F, Either[InitializationError[Json], (Option[URI], Bucket)]](
+          unapplyBucketUri(config)(cfg.bucketUri)))
       client <- EitherT(mkClient(cfg, endpoint).map(_.asRight[InitializationError[Json]]))
       upload = DefaultUpload(client, PartSize)
+      mkPostfix = Timer[F].clock.instantNow.
+        map(DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmssSSSX").
+          withZone(ZoneId.from(ZoneOffset.UTC)).format(_))
+
+      logger <- EitherT.right[InitializationError[Json]]{
+        Resource.eval(ConcurrentEffect[F].delay(LoggerFactory(s"quasar.lib.destination.s3")))
+      }
+
       _ <- EitherT(Resource.eval(isLive(client, sanitizedConfig, bucket)))
-    } yield (S3Destination(bucket, upload): Destination[F])).value
+    } yield (S3Destination(logger, bucket, cfg.prefixPath, upload, mkPostfix): Destination[F])).value
   }
 
   private def isLive[F[_]: Concurrent: ContextShift](

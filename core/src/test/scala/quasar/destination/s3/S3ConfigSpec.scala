@@ -16,6 +16,8 @@
 
 package quasar.destination.s3
 
+import scala.{None, Some}
+
 import quasar.blobstore.s3.{AccessKey, Region, SecretKey}
 
 import argonaut.{Argonaut, DecodeJson, Json}, Argonaut._
@@ -32,6 +34,7 @@ object S3ConfigSpec extends Specification {
 
     val cfg = S3Config(
       BucketUri("https://some-bucket.s3-eu-west-1.amazonaws.com"),
+      None,
       S3Credentials(AccessKey("key1"), SecretKey("key2"), Region("eu-west-1")))
 
     DecodeJson.of[S3Config].decodeJson(json).toOption must beSome(cfg)
@@ -49,6 +52,26 @@ object S3ConfigSpec extends Specification {
 
     val cfg = S3Config(
       BucketUri("https://s3-eu-west-1.amazonaws.com/some-bucket"),
+      None,
+      S3Credentials(AccessKey("key1"), SecretKey("key2"), Region("eu-west-1")))
+
+    DecodeJson.of[S3Config].decodeJson(json).toOption must beSome(cfg)
+
+    cfg.asJson.as[S3Config].toOption must beSome(cfg)
+  }
+
+  "decodes and encodes configs with prefixPath and path-style bucket" >> {
+    val json = Json.obj(
+      "bucket" := "https://s3-eu-west-1.amazonaws.com/some-bucket",
+      "prefixPath" := "some/path",
+      "credentials" := Json.obj(
+        "accessKey" := "key1",
+        "secretKey" := "key2",
+        "region" := "eu-west-1"))
+
+    val cfg = S3Config(
+      BucketUri("https://s3-eu-west-1.amazonaws.com/some-bucket"),
+      Some(PrefixPath("some/path")),
       S3Credentials(AccessKey("key1"), SecretKey("key2"), Region("eu-west-1")))
 
     DecodeJson.of[S3Config].decodeJson(json).toOption must beSome(cfg)
