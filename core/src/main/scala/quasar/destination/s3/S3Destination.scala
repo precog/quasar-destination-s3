@@ -24,7 +24,7 @@ import quasar.api.push.OffsetKey
 import quasar.blobstore.s3.Bucket
 import quasar.blobstore.paths.{BlobPath, PathElem}
 import quasar.connector.{AppendEvent, DataEvent, MonadResourceErr, ResourceError}
-import quasar.connector.destination.{ResultSink, UntypedDestination}
+import quasar.connector.destination.{ResultSink, UntypedDestination, WriteMode}
 import quasar.connector.render.RenderConfig
 import quasar.contrib.pathy.AFile
 
@@ -57,13 +57,13 @@ final class S3Destination[F[_]: ContextShift: MonadResourceErr](
     NonEmptyList.of(csvCreateSink, csvAppendSink, csvUpsertSink)
 
   private def csvCreateSink = ResultSink.create[F, Unit, Byte] { (path, _) =>
-    (RenderConfig.Csv(), consume("CreateSink", path, addTimestamp = false))
+    (RenderConfig.Csv(), consume("CreateSink", path, F.pure(none[String])))
   }
 
-  private def consume(logPrefix: String, path: ResourcePath, addTimestamp: Boolean): Pipe[F, Byte, Unit] = {
+  private def consume(logPrefix: String, path: ResourcePath, mkFullPostfix: F[Option[String]]): Pipe[F, Byte, Unit] = {
     bytes => Stream.eval(for {
       afile <- ensureAbsFile(prefixPath, path)
-      postfix <- if (addTimestamp) mkPostfix.map(_.some) else F.pure(none[String])
+      postfix <- mkFullPostfix
       path = ResourcePath.fromPath(nestResourcePath(afile, postfix))
       key = resourcePathToBlobPath(path)
       _ <- F.delay(logger.debug(s"[$logPrefix] Uploading ${path.show} to ${key.path.map(_.value).intercalate("/")}"))
@@ -75,26 +75,32 @@ final class S3Destination[F[_]: ContextShift: MonadResourceErr](
 
   private def append(appendArgs: ResultSink.AppendSink.Args[Unit])
       : (RenderConfig[Byte], ∀[Consume[F, AppendEvent[Byte, *], *]]) = {
-    val c = ∀[Consume[F, AppendEvent[Byte, *], *]](consumePipe("AppendSink", appendArgs.path))
+    val c = ∀[Consume[F, AppendEvent[Byte, *], *]](consumePipe("AppendSink", appendArgs.path, appendArgs.writeMode))
     (RenderConfig.Csv(), c)
   }
 
   // Currently we simply log a warning upon receiving a `DataEvent.Delete` event.
-  // In case of `WriteMode.Replace` the user could theoretically interpret the contents of the written file
-  // as the result of a full load.
+  // In case of `WriteMode.Replace` the user can interpret the contents of the written file
+  // as the result of a full load. This case can be recognized by the filename containing '.full'.
   // However in case of `WriteMode.Append` the written data would need to include the deleted id's too in order
-  // to be able to interpret it correctly.
+  // to be able to interpret it correctly. This case can be recognized by the filename containing '.incremental'.
   private def csvUpsertSink = ResultSink.upsert[F, Unit, Byte](upsert)
 
   private def upsert(upsertArgs: ResultSink.UpsertSink.Args[Unit])
       : (RenderConfig[Byte], ∀[Consume[F, DataEvent[Byte, *], *]]) = {
-    val c = ∀[Consume[F, DataEvent[Byte, *], *]](consumePipe("UpsertSink", upsertArgs.path))
+    val c = ∀[Consume[F, DataEvent[Byte, *], *]](consumePipe("UpsertSink", upsertArgs.path, upsertArgs.writeMode))
     (RenderConfig.Csv(), c)
   }
 
-  private def consumePipe[A](logPrefix: String, path: ResourcePath)
-      : Pipe[F, DataEvent[Byte, OffsetKey.Actual[A]], OffsetKey.Actual[A]] =
-    DataEventConsumer[F, A, Byte](logger, consume(logPrefix, path, addTimestamp = true))
+  private def consumePipe[A](logPrefix: String, path: ResourcePath, writeMode: WriteMode)
+      : Pipe[F, DataEvent[Byte, OffsetKey.Actual[A]], OffsetKey.Actual[A]] = {
+    val typePostfix = writeMode match {
+      case WriteMode.Append => "incremental"
+      case WriteMode.Replace => "full"
+    }
+    val mkFullPostFix = mkPostfix.map(pf => s"${pf}.${typePostfix}".some)
+    DataEventConsumer[F, A, Byte](logger, consume(logPrefix, path, mkFullPostFix))
+  }
 
   private def nestResourcePath(file: AFile, postfix: Option[String]): AFile = {
     val withoutExtension = Path.fileName(Path.renameFile(file, _.dropExtension)).value

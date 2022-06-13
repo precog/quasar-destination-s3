@@ -127,7 +127,7 @@ object S3DestinationSpec extends EffectfulQSpec[IO] {
         keys <- ref.get.map(_.keys)
       } yield {
         offsets.size must be_===(1)
-        keys must contain(exactly(ObjectKey("foo/bar/bar.somepostfix.csv")))
+        keys must contain(exactly(ObjectKey("foo/bar/bar.somepostfix.full.csv")))
       }
     }
 
@@ -139,7 +139,7 @@ object S3DestinationSpec extends EffectfulQSpec[IO] {
         keys <- ref.get.map(_.keys)
       } yield {
         offsets.size must be_===(1)
-        keys must contain(exactly(ObjectKey("foo/bar/bar.somepostfix.whatever.csv")))
+        keys must contain(exactly(ObjectKey("foo/bar/bar.somepostfix.full.whatever.csv")))
       }
     }
 
@@ -150,7 +150,7 @@ object S3DestinationSpec extends EffectfulQSpec[IO] {
         offsets <- runAppendSink(upload, testPath, evs)
         keys <- ref.get.map(_.keys)
       } yield {
-        keys must contain(exactly(ObjectKey("foo/bar/bar.somepostfix.csv")))
+        keys must contain(exactly(ObjectKey("foo/bar/bar.somepostfix.full.csv")))
       }
     }
 
@@ -177,7 +177,7 @@ object S3DestinationSpec extends EffectfulQSpec[IO] {
         currentStatus <- ref.get
       } yield {
         offsets.size must be_===(1)
-        currentStatus.get(ObjectKey("append/bar/bar.somepostfix.csv")) must beSome("push this")
+        currentStatus.get(ObjectKey("append/bar/bar.somepostfix.full.csv")) must beSome("push this")
       }
     }
   }
@@ -191,7 +191,7 @@ object S3DestinationSpec extends EffectfulQSpec[IO] {
         keys <- ref.get.map(_.keys)
       } yield {
         offsets.size must be_===(1)
-        keys must contain(exactly(ObjectKey("foo/bar/bar.somepostfix.csv")))
+        keys must contain(exactly(ObjectKey("foo/bar/bar.somepostfix.incremental.csv")))
       }
     }
 
@@ -203,7 +203,7 @@ object S3DestinationSpec extends EffectfulQSpec[IO] {
         keys <- ref.get.map(_.keys)
       } yield {
         offsets.size must be_===(1)
-        keys must contain(exactly(ObjectKey("foo/bar/bar.somepostfix.whatever.csv")))
+        keys must contain(exactly(ObjectKey("foo/bar/bar.somepostfix.incremental.whatever.csv")))
       }
     }
 
@@ -214,7 +214,7 @@ object S3DestinationSpec extends EffectfulQSpec[IO] {
         offsets <- runUpsertSink(upload, testPath, evs)
         keys <- ref.get.map(_.keys)
       } yield {
-        keys must contain(exactly(ObjectKey("foo/bar/bar.somepostfix.csv")))
+        keys must contain(exactly(ObjectKey("foo/bar/bar.somepostfix.incremental.csv")))
       }
     }
 
@@ -236,12 +236,12 @@ object S3DestinationSpec extends EffectfulQSpec[IO] {
     "uploads results" >>* {
       for {
         (upload, ref) <- MockUpload.empty
-        testPath = ResourcePath.root() / ResourceName("append") / ResourceName("bar.csv")
+        testPath = ResourcePath.root() / ResourceName("upsert") / ResourceName("bar.csv")
         offsets <- runUpsertSink(upload, testPath, evs)
         currentStatus <- ref.get
       } yield {
         offsets.size must be_===(1)
-        currentStatus.get(ObjectKey("append/bar/bar.somepostfix.csv")) must beSome("push this")
+        currentStatus.get(ObjectKey("upsert/bar/bar.somepostfix.incremental.csv")) must beSome("push this")
       }
     }
   }
@@ -299,7 +299,7 @@ object S3DestinationSpec extends EffectfulQSpec[IO] {
       : IO[List[OffsetKey.Actual[String]]] = {
     val idCol = Column("id", ())
     val cols = List.empty
-    val upsertPipe = sink.consume(ResultSink.UpsertSink.Args[Unit](path, idCol, cols, WriteMode.Replace))._2
+    val upsertPipe = sink.consume(ResultSink.UpsertSink.Args[Unit](path, idCol, cols, WriteMode.Append))._2
     upsertPipe[String](bytes).compile.toList
   }
 
