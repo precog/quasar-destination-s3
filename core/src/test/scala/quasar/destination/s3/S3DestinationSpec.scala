@@ -268,19 +268,19 @@ object S3DestinationSpec extends EffectfulQSpec[IO] {
   type AppendPipe = ∀[S3Destination.Consume[IO, AppendEvent[Byte, *], *]]
 
   def consumeAppend(
-      sink: ResultSink.AppendSink[IO, Byte],
+      sink: ResultSink.AppendSink[IO, Unit],
       path: ResourcePath,
       bytes: Stream[IO, AppendEvent[Byte, OffsetKey.Actual[String]]])
       : IO[List[OffsetKey.Actual[String]]] = {
-    val cols: PushColumns[Column[Byte]] = PushColumns.NoPrimary(NonEmptyList.one(Column("x", 1.toByte)))
-    val appendPipe = sink.consume(ResultSink.AppendSink.Args[Byte](path, cols, WriteMode.Replace)).pipe.asInstanceOf[AppendPipe]
+    val cols: PushColumns[Column[Unit]] = PushColumns.NoPrimary(NonEmptyList.one(Column("x", ())))
+    val appendPipe = sink.consume(ResultSink.AppendSink.Args[Unit](path, cols, WriteMode.Replace)).pipe.asInstanceOf[AppendPipe]
     appendPipe[String](bytes).compile.toList
   }
 
-  private def findAppendSink(sinks: NonEmptyList[ResultSink[IO, Unit]]): Option[ResultSink.AppendSink[IO, Byte]] =
+  private def findAppendSink(sinks: NonEmptyList[ResultSink[IO, Unit]]): Option[ResultSink.AppendSink[IO, Unit]] =
     sinks collectFirstSome {
       case csvSink @ ResultSink.AppendSink(_) =>
-        csvSink.asInstanceOf[ResultSink.AppendSink[IO, Byte]].some
+        csvSink.some
       case _ => None
     }
 
@@ -293,20 +293,20 @@ object S3DestinationSpec extends EffectfulQSpec[IO] {
   type DataPipe = ∀[S3Destination.Consume[IO, DataEvent[Byte, *], *]]
 
   def consumeUpsert(
-      sink: ResultSink.UpsertSink[IO, Byte, Byte],
+      sink: ResultSink.UpsertSink[IO, Unit, Byte],
       path: ResourcePath,
       bytes: Stream[IO, DataEvent[Byte, OffsetKey.Actual[String]]])
       : IO[List[OffsetKey.Actual[String]]] = {
-    val idCol = Column("id", 1.toByte)
+    val idCol = Column("id", ())
     val cols = List.empty
-    val upsertPipe = sink.consume(ResultSink.UpsertSink.Args[Byte](path, idCol, cols, WriteMode.Replace))._2
+    val upsertPipe = sink.consume(ResultSink.UpsertSink.Args[Unit](path, idCol, cols, WriteMode.Replace))._2
     upsertPipe[String](bytes).compile.toList
   }
 
-  private def findUpsertSink(sinks: NonEmptyList[ResultSink[IO, Unit]]): Option[ResultSink.UpsertSink[IO, Byte, Byte]] =
+  private def findUpsertSink(sinks: NonEmptyList[ResultSink[IO, Unit]]): Option[ResultSink.UpsertSink[IO, Unit, Byte]] =
     sinks collectFirstSome {
       case csvSink @ ResultSink.UpsertSink(_) =>
-        csvSink.asInstanceOf[ResultSink.UpsertSink[IO, Byte, Byte]].some
+        csvSink.asInstanceOf[ResultSink.UpsertSink[IO, Unit, Byte]].some
       case _ => None
     }
 
