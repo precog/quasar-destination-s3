@@ -182,6 +182,70 @@ object S3DestinationSpec extends EffectfulQSpec[IO] {
     }
   }
 
+  "upsert sink" >> {
+    "duplicates the filename as a prefix and includes postfix" >>* {
+      for {
+        (upload, ref) <- MockUpload.empty
+        testPath = ResourcePath.root() / ResourceName("foo") / ResourceName("bar.csv")
+        offsets <- runUpsertSink(upload, testPath, evs)
+        keys <- ref.get.map(_.keys)
+      } yield {
+        offsets.size must be_===(1)
+        keys must contain(exactly(ObjectKey("foo/bar/bar.somepostfix.csv")))
+      }
+    }
+
+    "adds csv extension to existing one" >>* {
+      for {
+        (upload, ref) <- MockUpload.empty
+        testPath = ResourcePath.root() / ResourceName("foo") / ResourceName("bar.whatever")
+        offsets <- runUpsertSink(upload, testPath, evs)
+        keys <- ref.get.map(_.keys)
+      } yield {
+        offsets.size must be_===(1)
+        keys must contain(exactly(ObjectKey("foo/bar/bar.somepostfix.whatever.csv")))
+      }
+    }
+
+    "adds csv extenstion if there is no extenstion" >>* {
+      for {
+        (upload, ref) <- MockUpload.empty
+        testPath = ResourcePath.root() / ResourceName("foo") / ResourceName("bar")
+        offsets <- runUpsertSink(upload, testPath, evs)
+        keys <- ref.get.map(_.keys)
+      } yield {
+        keys must contain(exactly(ObjectKey("foo/bar/bar.somepostfix.csv")))
+      }
+    }
+
+    "rejects ResourcePath.root() with ResourceError.NotAResource" >>* {
+      for {
+        (upload, _) <- MockUpload.empty
+        testPath = ResourcePath.root()
+        bytes = Stream.empty
+        res <- runUpsertSink(upload, testPath, evs).map(_.asRight[ResourceError]) recover {
+          case ResourceError.throwableP(re) => re.asLeft[List[OffsetKey.Actual[String]]]
+        }
+      } yield {
+        res must beLeft.like {
+          case ResourceError.NotAResource(path) => path must_== testPath
+        }
+      }
+    }
+
+    "uploads results" >>* {
+      for {
+        (upload, ref) <- MockUpload.empty
+        testPath = ResourcePath.root() / ResourceName("append") / ResourceName("bar.csv")
+        offsets <- runUpsertSink(upload, testPath, evs)
+        currentStatus <- ref.get
+      } yield {
+        offsets.size must be_===(1)
+        currentStatus.get(ObjectKey("append/bar/bar.somepostfix.csv")) must beSome("push this")
+      }
+    }
+  }
+
   private def runCreateSink(upload: Upload[IO], path: ResourcePath, bytes: Stream[IO, Byte]): IO[Unit] = {
     findCreateSink(S3Destination[IO](Log, TestBucket, None, upload, MkPostfix).sinks).fold(
       IO.raiseError[Unit](new Exception("Could not find create sink in S3Destination"))
@@ -217,6 +281,32 @@ object S3DestinationSpec extends EffectfulQSpec[IO] {
     sinks collectFirstSome {
       case csvSink @ ResultSink.AppendSink(_) =>
         csvSink.asInstanceOf[ResultSink.AppendSink[IO, Byte]].some
+      case _ => None
+    }
+
+  private def runUpsertSink(upload: Upload[IO], path: ResourcePath, evs: Stream[IO, AppendEvent[Byte, OffsetKey.Actual[String]]]): IO[List[OffsetKey.Actual[String]]] = {
+    findUpsertSink(S3Destination[IO](Log, TestBucket, None, upload, MkPostfix).sinks).fold(
+      IO.raiseError[List[OffsetKey.Actual[String]]](new Exception("Could not find upsert sink in S3Destination"))
+    )(sink => consumeUpsert(sink, path, evs))
+  }
+
+  type DataPipe = ∀[S3Destination.Consume[IO, DataEvent[Byte, *], *]]
+
+  def consumeUpsert(
+      sink: ResultSink.UpsertSink[IO, Byte, Byte],
+      path: ResourcePath,
+      bytes: Stream[IO, DataEvent[Byte, OffsetKey.Actual[String]]])
+      : IO[List[OffsetKey.Actual[String]]] = {
+    val idCol = Column("id", 1.toByte)
+    val cols = List.empty
+    val upsertPipe = sink.consume(ResultSink.UpsertSink.Args[Byte](path, idCol, cols, WriteMode.Replace))._2
+    upsertPipe[String](bytes).compile.toList
+  }
+
+  private def findUpsertSink(sinks: NonEmptyList[ResultSink[IO, Unit]]): Option[ResultSink.UpsertSink[IO, Byte, Byte]] =
+    sinks collectFirstSome {
+      case csvSink @ ResultSink.UpsertSink(_) =>
+        csvSink.asInstanceOf[ResultSink.UpsertSink[IO, Byte, Byte]].some
       case _ => None
     }
 
