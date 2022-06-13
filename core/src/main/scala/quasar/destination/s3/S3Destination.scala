@@ -79,6 +79,11 @@ final class S3Destination[F[_]: ContextShift: MonadResourceErr](
     (RenderConfig.Csv(), c)
   }
 
+  // Currently we simply log a warning upon receiving a `DataEvent.Delete` event.
+  // In case of `WriteMode.Replace` the user could theoretically interpret the contents of the written file
+  // as the result of a full load.
+  // However in case of `WriteMode.Append` the written data would need to include the deleted id's too in order
+  // to be able to interpret it correctly.
   private def csvUpsertSink = ResultSink.upsert[F, Unit, Byte](upsert)
 
   private def upsert(upsertArgs: ResultSink.UpsertSink.Args[Unit])
@@ -89,7 +94,7 @@ final class S3Destination[F[_]: ContextShift: MonadResourceErr](
 
   private def consumePipe[A](logPrefix: String, path: ResourcePath)
       : Pipe[F, DataEvent[Byte, OffsetKey.Actual[A]], OffsetKey.Actual[A]] =
-    DataEventConsumer[F, A, Byte](consume(logPrefix, path, addTimestamp = true))
+    DataEventConsumer[F, A, Byte](logger, consume(logPrefix, path, addTimestamp = true))
 
   private def nestResourcePath(file: AFile, postfix: Option[String]): AFile = {
     val withoutExtension = Path.fileName(Path.renameFile(file, _.dropExtension)).value

@@ -21,18 +21,23 @@ import slamdata.Predef._
 import quasar.api.push.OffsetKey
 import quasar.connector.DataEvent
 
-import cats.effect.Concurrent
+import cats.effect.{Concurrent, Sync}
 import cats.syntax.all._
 
 import fs2.{Pipe, Stream}
 import fs2.concurrent.Queue
+import org.slf4s.Logger
 
-class DataEventConsumer[F[_], A, B](queue: Queue[F, Option[OffsetKey.Actual[A]]], write: Pipe[F, B, Unit]) {
+class DataEventConsumer[F[_], A, B](
+  logger: Logger,
+  queue: Queue[F, Option[OffsetKey.Actual[A]]],
+  write: Pipe[F, B, Unit])(
+  implicit F: Sync[F]) {
 
   private def pipe: Pipe[F, DataEvent[B, OffsetKey.Actual[A]], B] =
     _.flatMap {
       case DataEvent.Create(chunk) => Stream.chunk(chunk)
-      case DataEvent.Delete(_) => Stream.empty
+      case DataEvent.Delete(ids) => Stream.eval(F.delay(logger.warn(s"Ignoring delete event with ids: ${ids.show}"))).drain
       case DataEvent.Commit(offset) => Stream.eval(queue.enqueue1(offset.some)).drain
     }
 
@@ -42,13 +47,13 @@ class DataEventConsumer[F[_], A, B](queue: Queue[F, Option[OffsetKey.Actual[A]]]
 
 object DataEventConsumer {
 
-  def apply[F[_]: Concurrent, A, B](write: Pipe[F, B, Unit])
+  def apply[F[_]: Concurrent, A, B](logger: Logger, write: Pipe[F, B, Unit])
       : Pipe[F, DataEvent[B, OffsetKey.Actual[A]], OffsetKey.Actual[A]] =
     evs =>
       for {
         q <- Stream.eval(Queue.unbounded[F, Option[OffsetKey.Actual[A]]])
 
-        consumer = new DataEventConsumer[F, A, B](q, write)
+        consumer = new DataEventConsumer[F, A, B](logger, q, write)
 
         offset <- q.dequeue.unNoneTerminate.concurrently {
           consumer.consume(evs).onFinalize(q.enqueue1(None))
