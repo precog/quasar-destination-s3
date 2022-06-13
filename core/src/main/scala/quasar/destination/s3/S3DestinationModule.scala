@@ -85,10 +85,14 @@ object S3DestinationModule extends DestinationModule {
 
     (for {
       cfg <- EitherT(Resource.pure[F, Either[InitializationError[Json], S3Config]](configOrError))
-      (endpoint, bucket) <- EitherT(Resource.pure[F, Either[InitializationError[Json], (Option[URI], Bucket)]](unapplyBucketUri(config)(cfg.bucketUri)))
+      (endpoint, bucket) <- EitherT(
+        Resource.pure[F, Either[InitializationError[Json], (Option[URI], Bucket)]](
+          unapplyBucketUri(config)(cfg.bucketUri)))
       client <- EitherT(mkClient(cfg, endpoint).map(_.asRight[InitializationError[Json]]))
       upload = DefaultUpload(client, PartSize)
-      mkPostfix = Timer[F].clock.instantNow.map(DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmssSSSX").withZone(ZoneId.from(ZoneOffset.UTC)).format(_))
+      mkPostfix = Timer[F].clock.instantNow.
+        map(DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmssSSSX").
+          withZone(ZoneId.from(ZoneOffset.UTC)).format(_))
 
       logger <- EitherT.right[InitializationError[Json]]{
         Resource.eval(ConcurrentEffect[F].delay(LoggerFactory(s"quasar.lib.destination.s3")))

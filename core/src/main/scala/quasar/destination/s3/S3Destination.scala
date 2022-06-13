@@ -41,7 +41,12 @@ import scalaz.syntax.show._
 import skolems.∀
 
 final class S3Destination[F[_]: ContextShift: MonadResourceErr](
-  logger: Logger, bucket: Bucket, prefixPath: Option[PrefixPath], uploadImpl: Upload[F], mkPostfix: F[String])(implicit F: Concurrent[F])
+  logger: Logger,
+  bucket: Bucket,
+  prefixPath: Option[PrefixPath],
+  uploadImpl: Upload[F],
+  mkPostfix: F[String])(
+  implicit F: Concurrent[F])
     extends UntypedDestination[F] {
 
   import S3Destination._
