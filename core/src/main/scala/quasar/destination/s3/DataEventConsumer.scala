@@ -24,26 +24,20 @@ import quasar.connector.DataEvent
 import cats.effect.Concurrent
 import cats.syntax.all._
 
-import fs2.{Pipe, Pull, Stream}
+import fs2.{Pipe, Stream}
 import fs2.concurrent.Queue
 
 class DataEventConsumer[F[_], A, B](queue: Queue[F, Option[OffsetKey.Actual[A]]], write: Pipe[F, B, Unit]) {
 
-  private def go(inp: Stream[F, DataEvent[B, OffsetKey.Actual[A]]]): Pull[F, B, Unit] =
-    inp.pull.uncons1 flatMap {
-      case Some((ev, tail)) =>
-        val act =
-          ev match {
-            case DataEvent.Create(chunk) => Pull.output(chunk)
-            case DataEvent.Delete(ids) => Pull.pure(())
-            case DataEvent.Commit(offset) => Pull.eval(queue.enqueue1(offset.some))
-          }
-        act >> go(tail)
-      case None => Pull.done
+  private def pipe: Pipe[F, DataEvent[B, OffsetKey.Actual[A]], B] =
+    _.flatMap {
+      case DataEvent.Create(chunk) => Stream.chunk(chunk)
+      case DataEvent.Delete(_) => Stream.empty
+      case DataEvent.Commit(offset) => Stream.eval(queue.enqueue1(offset.some)).drain
     }
 
   def consume: Pipe[F, DataEvent[B, OffsetKey.Actual[A]], Unit] =
-    go(_).stream.through(write)
+    pipe.andThen(write)
 }
 
 object DataEventConsumer {
